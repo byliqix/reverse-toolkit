@@ -4,7 +4,7 @@ mod hash;
 mod xor;
 mod highlight;
 
-use fltk::{app, prelude::*, window::*, group::*, button::*, input::*, output::*,
+use fltk::{app, enums::Key, prelude::*, window::*, group::*, button::*, input::*, output::*,
            text::*, menu::*, frame::*, image::*};
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -513,24 +513,30 @@ fn main() {
     }
 
     // ── Debug ──
-    menu.add("&Debug/Run\tF9", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+    menu.add("&Debug/Run\tF9",
+             fltk::enums::Shortcut::from_key(Key::F9), fltk::menu::MenuFlag::Normal, |_| {
         fltk::dialog::alert_default("Run: Start debugging (not available in static analysis)");
     });
-    menu.add("&Debug/Step Into\tF7", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+    menu.add("&Debug/Step Into\tF7",
+             fltk::enums::Shortcut::from_key(Key::F7), fltk::menu::MenuFlag::Normal, |_| {
         fltk::dialog::alert_default("Step Into: Not available in static analysis");
     });
-    menu.add("&Debug/Step Over\tF8", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+    menu.add("&Debug/Step Over\tF8",
+             fltk::enums::Shortcut::from_key(Key::F8), fltk::menu::MenuFlag::Normal, |_| {
         fltk::dialog::alert_default("Step Over: Not available in static analysis");
     });
     menu.add("&Debug/Execute Until Return\tCtrl+F9",
-             fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+             fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::from_key(Key::F9),
+             fltk::menu::MenuFlag::Normal, |_| {
         fltk::dialog::alert_default("Execute Until Return: Not available in static analysis");
     });
-    menu.add("&Debug/Break\tF5", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+    menu.add("&Debug/Break\tF5",
+             fltk::enums::Shortcut::from_key(Key::F5), fltk::menu::MenuFlag::Normal, |_| {
         fltk::dialog::alert_default("Break: Not available in static analysis");
     });
     menu.add("&Debug/Restart\tCtrl+F2",
-             fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+             fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::from_key(Key::F2),
+             fltk::menu::MenuFlag::Normal, |_| {
         fltk::dialog::alert_default("Restart: Not available in static analysis");
     });
     menu.add("&Debug/Stop\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
@@ -574,6 +580,31 @@ fn main() {
     menu.add("&Help/About\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
         show_about();
     });
+
+    // ── Color-coded menu items ──
+    let green  = fltk::enums::Color::from_hex(0x39FF14);
+    let gold   = fltk::enums::Color::from_hex(0xFFD700);
+    let red    = fltk::enums::Color::from_hex(0xFF2A2A);
+    let teal   = fltk::enums::Color::from_hex(0x4EC9B0);
+    let gray   = fltk::enums::Color::from_hex(0x808080);
+    let orange = fltk::enums::Color::from_hex(0xFF8C00);
+    for (path, col) in [
+        ("File/Open", green), ("File/Hashes", green), ("File/Exit", green),
+        ("View/CPU", gold), ("View/Graph", gold), ("View/Snowman", gold),
+        ("View/References", gold), ("View/Breakpoints", gold), ("View/Threads", gold),
+        ("View/Handles", gold), ("View/Memory Map", gold), ("View/Symbols", gold),
+        ("View/Call Stack", gold), ("View/SEH", gold), ("View/Notes", gold),
+        ("View/Log", gold), ("View/Script", gold), ("View/Source", gold),
+        ("Debug/Run", red), ("Debug/Step Into", red), ("Debug/Step Over", red),
+        ("Debug/Execute Until Return", red), ("Debug/Break", red), ("Debug/Restart", red), ("Debug/Stop", red),
+        ("Plugins/Plugin Manager", teal),
+        ("Options/Preferences", gray), ("Options/Font", gray), ("Options/Theme", gray),
+        ("Tools/PE Info", orange), ("Tools/Strings", orange), ("Tools/XOR Tool", orange),
+    ] {
+        if let Some(mut item) = menu.find_item(path) {
+            item.set_label_color(col);
+        }
+    }
 
     // Toolbar
     let mut tb = Group::new(0, TITLE_H + MENU_H, W, TB_H, "");
