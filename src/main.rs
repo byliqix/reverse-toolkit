@@ -445,13 +445,14 @@ fn do_rehash() {
 
 fn main() {
     let app = app::App::default().with_scheme(app::Scheme::Gtk);
-    app::background(12, 12, 12);
-    app::set_background_color(12, 12, 12);
+    app::background(48, 48, 48);
+    app::set_background_color(48, 48, 48);
+    app::foreground(220, 220, 220);
 
     let W: i32 = 1400;
     let H: i32 = 820;
     let TITLE_H: i32 = 28;
-    let MENU_H: i32 = 22;
+    let MENU_H: i32 = 24;
     let TB_H: i32 = 28;
     let CY: i32 = TITLE_H + MENU_H + TB_H;
     let CH: i32 = H - CY - 24;
@@ -461,10 +462,10 @@ fn main() {
     let BH: i32 = CH - TH;
     let RX: i32 = LW + 2;
 
-    let c_bg     = fltk::enums::Color::from_hex(0x0C0C0C);
-    let c_panel  = fltk::enums::Color::from_hex(0x1A1A1A);
+    let c_bg     = fltk::enums::Color::from_hex(0x1A1A1A);
+    let c_panel  = fltk::enums::Color::from_hex(0x252525);
     let c_sel    = fltk::enums::Color::from_hex(0x094771);
-    let c_txt    = fltk::enums::Color::from_hex(0xD4D4D4);
+    let c_txt    = fltk::enums::Color::from_hex(0xE0E0E0);
     let c_gold   = fltk::enums::Color::from_hex(0xFFD700);
     let c_cyan   = fltk::enums::Color::from_hex(0x00FFFF);
     let c_green  = fltk::enums::Color::from_hex(0x39FF14);
@@ -472,7 +473,7 @@ fn main() {
     let c_red    = fltk::enums::Color::from_hex(0xFF2A2A);
     let c_teal   = fltk::enums::Color::from_hex(0x4EC9B0);
     let c_gray   = fltk::enums::Color::from_hex(0x808080);
-    let c_header = fltk::enums::Color::from_hex(0x2D2D2D);
+    let c_header = fltk::enums::Color::from_hex(0x383838);
 
     let win_title = format!("{} v{} - 64-bit", APP_NAME, APP_VERSION);
     let mut win = Window::new(50, 50, W, H, win_title.as_str());
@@ -488,12 +489,22 @@ fn main() {
     title_txt.set_label_color(c_cyan);
     title_txt.set_label_size(11);
 
+    // Menu Bar separator
+    let mut menu_top = Frame::new(0, TITLE_H, W, 1, "");
+    menu_top.set_frame(fltk::enums::FrameType::FlatBox);
+    menu_top.set_color(fltk::enums::Color::from_hex(0x505050));
+
     // Menu Bar
-    let mut menu = MenuBar::new(0, TITLE_H, W, MENU_H, "");
+    let mut menu = MenuBar::new(0, TITLE_H + 1, W, MENU_H - 1, "");
     menu.set_frame(fltk::enums::FrameType::FlatBox);
     menu.set_color(c_header);
-    menu.set_label_color(c_txt);
+    menu.set_label_color(fltk::enums::Color::from_hex(0xF0F0F0));
     menu.set_selection_color(c_sel);
+    menu.set_label_size(11);
+
+    let mut menu_bot = Frame::new(0, TITLE_H + MENU_H, W, 1, "");
+    menu_bot.set_frame(fltk::enums::FrameType::FlatBox);
+    menu_bot.set_color(fltk::enums::Color::from_hex(0x505050));
 
     // ── File ──
     menu.add("&File/Open\t", fltk::enums::Shortcut::Ctrl | 'o', fltk::menu::MenuFlag::Normal, |_| do_open());
@@ -607,7 +618,7 @@ fn main() {
     }
 
     // Toolbar
-    let mut tb = Group::new(0, TITLE_H + MENU_H, W, TB_H, "");
+    let mut tb = Group::new(0, TITLE_H + MENU_H + 1, W, TB_H, "");
     tb.set_frame(fltk::enums::FrameType::FlatBox);
     tb.set_color(c_header);
     let tb_labels = ["CPU", "Graph", "Snowman", "References", "Breakpoints", "Threads",
