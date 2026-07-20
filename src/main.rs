@@ -282,6 +282,34 @@ thread_local! {
     static EDITORS: RefCell<Option<Editors>> = const { RefCell::new(None) };
 }
 
+thread_local! {
+    static TB_BTNS: RefCell<Vec<Button>> = const { RefCell::new(Vec::new()) };
+    static VIEW_GROUPS: RefCell<Vec<Group>> = const { RefCell::new(Vec::new()) };
+}
+
+fn switch_view(idx: usize) {
+    let c_sel   = fltk::enums::Color::from_hex(0x094771);
+    let c_header = fltk::enums::Color::from_hex(0x2D2D2D);
+    let c_txt   = fltk::enums::Color::from_hex(0xD4D4D4);
+    let c_white = fltk::enums::Color::from_hex(0xF0F0F0);
+    TB_BTNS.with(|b| {
+        for (i, btn) in b.borrow_mut().iter_mut().enumerate() {
+            if i == idx {
+                btn.set_color(c_sel);
+                btn.set_label_color(c_white);
+            } else {
+                btn.set_color(c_header);
+                btn.set_label_color(c_txt);
+            }
+        }
+    });
+    VIEW_GROUPS.with(|g| {
+        for (i, grp) in g.borrow_mut().iter_mut().enumerate() {
+            if i == idx { grp.show(); } else { grp.hide(); }
+        }
+    });
+}
+
 fn do_open() {
     if let Some(path) = fltk::dialog::file_chooser("Open File", "*", "", true) {
         STATE.with(|s| s.borrow_mut().load(&path));
@@ -367,33 +395,44 @@ fn main() {
     let mut tb = Group::new(0, TITLE_H + MENU_H, W, TB_H, "");
     tb.set_frame(fltk::enums::FrameType::FlatBox);
     tb.set_color(c_header);
-    let tb_labels = ["CPU", "Graph", "Snow", "Refs", "BPs", "Threads", "Handles", "MemMap",
-                     "Symbols", "CallStack", "SEH", "Notes", "Log", "Source"];
-    let tb_colors = [c_green, c_orange, c_cyan, c_gold, c_red, c_cyan, c_orange, c_gray,
-                     c_gold, c_teal, c_red, c_cyan, c_gray, c_orange];
+    let tb_labels = ["CPU", "Graph", "Snowman", "References", "Breakpoints", "Threads",
+                     "Handles", "Memory Map", "Symbols", "Call Stack", "SEH", "Notes",
+                     "Log", "Script", "Source"];
+    let tb_colors = [c_green, c_orange, c_cyan, c_gold, c_red, c_cyan,
+                     c_orange, c_gray, c_gold, c_teal, c_red, c_cyan, c_gray, c_orange, c_green];
+    let mut tb_btns: Vec<Button> = Vec::new();
     for (i, lbl) in tb_labels.iter().enumerate() {
-        let x = 4 + i as i32 * 64;
-        let mut b = Button::new(x, 3, 62, TB_H - 6, *lbl);
+        let x = 4 + i as i32 * 76;
+        let mut b = Button::new(x, 3, 72, TB_H - 6, *lbl);
         b.set_frame(fltk::enums::FrameType::FlatBox);
         b.set_color(c_header);
         b.set_selection_color(c_sel);
         b.set_label_color(tb_colors[i % tb_colors.len()]);
         b.set_label_size(10);
+        let idx = i;
+        b.set_callback(move |_| switch_view(idx));
+        tb_btns.push(b);
     }
     tb.end();
+    TB_BTNS.with(|v| *v.borrow_mut() = tb_btns);
+
+    // CPU View (index 0): 4-panel layout
+    let mut cpu_grp = Group::new(0, CY, W, CH, "");
+    cpu_grp.set_frame(fltk::enums::FrameType::FlatBox);
+    cpu_grp.set_color(c_bg);
 
     // Top-Left: Disassembly
-    let mut da_panel = Group::new(0, CY, LW, TH, "");
+    let mut da_panel = Group::new(0, 0, LW, TH, "");
     da_panel.set_frame(fltk::enums::FrameType::FlatBox);
     da_panel.set_color(c_bg);
-    let mut da_head = Frame::new(0, CY, LW, 20, "  DISASSEMBLY");
+    let mut da_head = Frame::new(0, 0, LW, 20, "  DISASSEMBLY");
     da_head.set_frame(fltk::enums::FrameType::FlatBox);
     da_head.set_color(c_panel);
     da_head.set_label_color(c_green);
     da_head.set_label_size(10);
     let mut da_buf = TextBuffer::default();
     let da_sty = TextBuffer::default();
-    let mut da_ed = TextEditor::new(0, CY + 20, LW, TH - 20, "");
+    let mut da_ed = TextEditor::new(0, 20, LW, TH - 20, "");
     da_ed.set_buffer(da_buf.clone());
     da_ed.set_highlight_data(da_sty.clone(), highlight::disasm_style_table());
     da_ed.set_text_font(fltk::enums::Font::Courier);
@@ -406,17 +445,17 @@ fn main() {
     da_panel.end();
 
     // Top-Right: Registers
-    let mut reg_panel = Group::new(RX, CY, RW, TH, "");
+    let mut reg_panel = Group::new(RX, 0, RW, TH, "");
     reg_panel.set_frame(fltk::enums::FrameType::FlatBox);
     reg_panel.set_color(c_bg);
-    let mut reg_head = Frame::new(RX, CY, RW, 20, "  REGISTERS");
+    let mut reg_head = Frame::new(RX, 0, RW, 20, "  REGISTERS");
     reg_head.set_frame(fltk::enums::FrameType::FlatBox);
     reg_head.set_color(c_panel);
     reg_head.set_label_color(c_gold);
     reg_head.set_label_size(10);
     let cpu_names = ["EAX", "EBX", "ECX", "EDX", "ESI", "EDI", "EBP", "ESP", "EIP", "EFLAGS"];
     let mut reg_vals: Vec<Output> = cpu_names.iter().enumerate().map(|(i, name)| {
-        let y = CY + 24 + i as i32 * 18;
+        let y = 24 + i as i32 * 18;
         let mut nl = Frame::new(RX + 4, y, 40, 16, *name);
         nl.set_label_color(c_teal);
         nl.set_label_size(10);
@@ -428,11 +467,11 @@ fn main() {
         ov.set_text_font(fltk::enums::Font::Courier);
         ov
     }).collect();
-    let mut x87_head = Frame::new(RX + 4, CY + 24 + 10 * 18 + 4, RW - 8, 14, "x87 REGISTERS");
+    let mut x87_head = Frame::new(RX + 4, 24 + 10 * 18 + 4, RW - 8, 14, "x87 REGISTERS");
     x87_head.set_label_color(c_cyan);
     x87_head.set_label_size(9);
     for i in 0..8 {
-        let y = CY + 24 + 10 * 18 + 20 + i as i32 * 15;
+        let y = 24 + 10 * 18 + 20 + i as i32 * 15;
         let x87_label = format!("x87r{}:", i);
         let mut nl = Frame::new(RX + 4, y, 44, 14, x87_label.as_str());
         nl.set_label_color(c_teal);
@@ -448,19 +487,17 @@ fn main() {
     reg_panel.end();
 
     // Bottom-Left: Hex Dump
-    let hex_y = CY + TH;
-    let hex_h = BH;
-    let mut hex_panel = Group::new(0, hex_y, LW, hex_h, "");
+    let mut hex_panel = Group::new(0, TH, LW, BH, "");
     hex_panel.set_frame(fltk::enums::FrameType::FlatBox);
     hex_panel.set_color(c_bg);
-    let mut hex_head = Frame::new(0, hex_y, LW, 20, "  HEX DUMP");
+    let mut hex_head = Frame::new(0, TH, LW, 20, "  HEX DUMP");
     hex_head.set_frame(fltk::enums::FrameType::FlatBox);
     hex_head.set_color(c_panel);
     hex_head.set_label_color(c_green);
     hex_head.set_label_size(10);
     let mut hex_buf = TextBuffer::default();
     let hex_sty = TextBuffer::default();
-    let mut hex_ed = TextEditor::new(0, hex_y + 20, LW, hex_h - 20, "");
+    let mut hex_ed = TextEditor::new(0, TH + 20, LW, BH - 20, "");
     hex_ed.set_buffer(hex_buf.clone());
     hex_ed.set_highlight_data(hex_sty.clone(), highlight::hex_style_table());
     hex_ed.set_text_font(fltk::enums::Font::Courier);
@@ -472,18 +509,16 @@ fn main() {
     hex_panel.end();
 
     // Bottom-Right: Stack
-    let stk_y = CY + TH;
-    let stk_h = BH;
-    let mut stk_panel = Group::new(RX, stk_y, RW, stk_h, "");
+    let mut stk_panel = Group::new(RX, TH, RW, BH, "");
     stk_panel.set_frame(fltk::enums::FrameType::FlatBox);
     stk_panel.set_color(c_bg);
-    let mut stk_head = Frame::new(RX, stk_y, RW, 20, "  STACK");
+    let mut stk_head = Frame::new(RX, TH, RW, 20, "  STACK");
     stk_head.set_frame(fltk::enums::FrameType::FlatBox);
     stk_head.set_color(c_panel);
     stk_head.set_label_color(c_gold);
     stk_head.set_label_size(10);
     let mut stack_buf = TextBuffer::default();
-    let mut stk_ed = TextEditor::new(RX + 2, stk_y + 20, RW - 4, stk_h - 20, "");
+    let mut stk_ed = TextEditor::new(RX + 2, TH + 20, RW - 4, BH - 20, "");
     stk_ed.set_buffer(stack_buf.clone());
     stk_ed.set_text_font(fltk::enums::Font::Courier);
     stk_ed.set_text_size(11);
@@ -492,6 +527,33 @@ fn main() {
     stk_ed.set_text_color(c_txt);
     stk_ed.set_selection_color(c_sel);
     stk_panel.end();
+
+    cpu_grp.end();
+
+    // Other views (index 1..14)
+    let other_names = ["Graph", "Snowman", "References", "Breakpoints", "Threads",
+                       "Handles", "Memory Map", "Symbols", "Call Stack", "SEH",
+                       "Notes", "Log", "Script", "Source"];
+    let mut view_grps: Vec<Group> = Vec::new();
+    view_grps.push(cpu_grp);
+    for name in &other_names {
+        let mut grp = Group::new(0, CY, W, CH, "");
+        grp.set_frame(fltk::enums::FrameType::FlatBox);
+        grp.set_color(c_bg);
+        let mut buf = TextBuffer::default();
+        buf.set_text(&format!("{} View\n\nNot yet implemented.", name));
+        let mut ed = TextEditor::new(2, 2, W - 4, CH - 4, "");
+        ed.set_buffer(buf);
+        ed.set_text_font(fltk::enums::Font::Courier);
+        ed.set_text_size(12);
+        ed.set_insert_mode(false);
+        ed.set_color(c_bg);
+        ed.set_text_color(c_txt);
+        ed.set_selection_color(c_sel);
+        grp.end();
+        view_grps.push(grp);
+    }
+    VIEW_GROUPS.with(|v| *v.borrow_mut() = view_grps);
 
     // Status Bar
     let mut status = Frame::new(0, CY + CH, W, 24, " No file loaded  |  Ready");
@@ -520,6 +582,8 @@ fn main() {
             status, title: title_txt,
         });
     });
+
+    switch_view(0);
 
     app.run().unwrap();
 }
