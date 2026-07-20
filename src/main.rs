@@ -5,9 +5,12 @@ mod xor;
 mod highlight;
 
 use fltk::{app, prelude::*, window::*, group::*, button::*, input::*, output::*,
-           text::*, menu::*, frame::*};
+           text::*, menu::*, frame::*, image::*};
 use std::cell::RefCell;
 use std::fmt::Write;
+
+const APP_VERSION: &str = "1.0.0";
+const APP_NAME: &str = "XPTool Reverse Engineering Suite";
 
 thread_local! {
     static STATE: RefCell<AppState> = RefCell::new(AppState::new());
@@ -272,7 +275,7 @@ impl Editors {
                 }
                 ed.stack.set_text(&stack);
                 ed.status.set_label(&label);
-                ed.title.set_label(&format!("  xptool - {}", label));
+                ed.title.set_label(&format!("  {} v{} - {} - {}", APP_NAME, APP_VERSION, "64-bit", label));
             }
         });
     }
@@ -374,6 +377,54 @@ fn update_log_text(buf: &mut TextBuffer, data_len: usize) {
     buf.set_text(&t);
 }
 
+fn show_about() {
+    fltk::dialog::message_title(&format!("About {} v{}", APP_NAME, APP_VERSION));
+    fltk::dialog::message_default(&format!(
+        "{} v{}\n\
+         \n\
+         A cross-platform reverse engineering toolkit\n\
+         Inspired by x64dbg\n\
+         \n\
+         Features:\n\
+         \u{2022} PE parser & analyzer\n\
+         \u{2022} x86 disassembler\n\
+         \u{2022} MD5 / SHA1 / SHA-256\n\
+         \u{2022} XOR tool\n\
+         \u{2022} Syntax highlighting\n\
+         \u{2022} Memory map & symbols viewer\n\
+         \n\
+         Built with Rust + FLTK",
+        APP_NAME, APP_VERSION
+    ));
+}
+
+fn set_app_icon(win: &mut Window) {
+    let s = 32;
+    let mut d = Vec::with_capacity((s * s * 4) as usize);
+    for y in 0..s {
+        for x in 0..s {
+            let cx = (x as i32 - 16) as f64;
+            let cy = (y as i32 - 16) as f64;
+            let dist = (cx * cx + cy * cy).sqrt();
+            let a = if dist < 14.0 { 220 } else if dist < 15.5 { 255 } else if cx.abs() < 2.0 { 180 } else { 0 };
+            if dist < 14.0 {
+                d.extend_from_slice(&[0x00, 0xCC, 0xFF, a]); // cyan circle
+            } else if dist < 15.5 {
+                d.extend_from_slice(&[0xFF, 0xD7, 0x00, a]); // gold ring
+            } else if cx.abs() < 2.0 && cy.abs() > 5.0 && cy.abs() < 15.0 {
+                d.extend_from_slice(&[0x39, 0xFF, 0x14, a]); // green crosshair vertical
+            } else if cy.abs() < 2.0 && cx.abs() > 5.0 && cx.abs() < 15.0 {
+                d.extend_from_slice(&[0x39, 0xFF, 0x14, a]); // green crosshair horizontal
+            } else {
+                d.extend_from_slice(&[0, 0, 0, 0]); // transparent
+            }
+        }
+    }
+    if let Ok(img) = RgbImage::new(&d, s, s, fltk::enums::ColorDepth::Rgba8) {
+        win.set_icon(Some(img));
+    }
+}
+
 fn do_open() {
     if let Some(path) = fltk::dialog::file_chooser("Open File", "*", "", true) {
         STATE.with(|s| s.borrow_mut().load(&path));
@@ -423,14 +474,17 @@ fn main() {
     let c_gray   = fltk::enums::Color::from_hex(0x808080);
     let c_header = fltk::enums::Color::from_hex(0x2D2D2D);
 
-    let mut win = Window::new(50, 50, W, H, "xptool - Reverse Engineering Toolkit");
+    let win_title = format!("{} v{} - 64-bit", APP_NAME, APP_VERSION);
+    let mut win = Window::new(50, 50, W, H, win_title.as_str());
     win.make_resizable(true);
+    set_app_icon(&mut win);
 
     // Title Bar
     let mut title_bg = Frame::new(0, 0, W, TITLE_H, "");
     title_bg.set_frame(fltk::enums::FrameType::FlatBox);
     title_bg.set_color(c_bg);
-    let mut title_txt = Frame::new(6, 0, W - 200, TITLE_H, "  xptool - No file loaded");
+    let title_text = format!("  {} v{}  |  64-bit  |  No file loaded", APP_NAME, APP_VERSION);
+    let mut title_txt = Frame::new(6, 0, W - 200, TITLE_H, title_text.as_str());
     title_txt.set_label_color(c_cyan);
     title_txt.set_label_size(11);
 
@@ -454,6 +508,10 @@ fn main() {
     });
     menu.add("&Tools/XOR Tool\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
         show_xor_window();
+    });
+
+    menu.add("&Help/About\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        show_about();
     });
 
     // Toolbar
