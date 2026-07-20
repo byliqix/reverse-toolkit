@@ -310,10 +310,75 @@ fn switch_view(idx: usize) {
     });
 }
 
+thread_local! {
+    static VIEW_BUFS: RefCell<Vec<TextBuffer>> = const { RefCell::new(Vec::new()) };
+}
+
+fn refresh_views() {
+    let core = STATE.with(|s| {
+        let st = s.borrow();
+        (st.core.pe.clone(), st.core.file_data.len(), st.core.str.clone())
+    });
+    VIEW_BUFS.with(|v| {
+        let mut bufs = v.borrow_mut();
+        if bufs.len() < 14 { return; }
+        bufs[0].set_text("Graph View - Control Flow Graph\n\nNot yet implemented.\n\nThis will show a graphical CFG.");
+        bufs[1].set_text("Snowman Decompiler\n\nNot yet implemented.\n\nThis will show decompiled C-like pseudo-code.");
+        update_view_text(&mut bufs[2], "References - Imports", &core.0, "── Imports");
+        bufs[3].set_text("Breakpoints\n\n  No breakpoints set.\n  Use the CPU view to set breakpoints at specific addresses.");
+        update_view_text(&mut bufs[4], "Threads", &core.0, "── Imports");
+        bufs[5].set_text("Handles\n\n  Handle information not available in static analysis.\n  This view is used during runtime debugging.");
+        update_view_text(&mut bufs[6], "Memory Map", &core.0, "── Sections");
+        update_view_text(&mut bufs[7], "Symbols - Exports", &core.0, "── Exports");
+        update_view_text(&mut bufs[8], "Call Stack", &core.0, "── Imports");
+        // Index 9 (Notes) - skip, preserve user edits
+        update_log_text(&mut bufs[11], core.1);
+        bufs[12].set_text("Script Console\n\nPython scripting support coming soon.");
+        bufs[13].set_text("Source View\n\nSource code not available.\nLoad debug symbols (PDB) to view source code.");
+    });
+}
+
+fn update_view_text(buf: &mut TextBuffer, title: &str, pe: &str, section: &str) {
+    use std::fmt::Write;
+    let mut t = String::new();
+    writeln!(t, "{}", title).ok();
+    writeln!(t, "{}", "─".repeat(72)).ok();
+    if pe.is_empty() {
+        writeln!(t, "  No PE file loaded.").ok();
+    } else {
+        let mut found = false;
+        for line in pe.lines() {
+            if line.contains(section) { found = true; continue; }
+            if found {
+                if line.trim().is_empty() || line.starts_with("──") { break; }
+                writeln!(t, "{}", line).ok();
+            }
+        }
+        if !found { writeln!(t, "  Section not found in PE data.").ok(); }
+    }
+    buf.set_text(&t);
+}
+
+fn update_log_text(buf: &mut TextBuffer, data_len: usize) {
+    use std::fmt::Write;
+    let mut t = String::new();
+    writeln!(t, "Operation Log").ok();
+    writeln!(t, "{}", "─".repeat(72)).ok();
+    if data_len > 0 {
+        writeln!(t, "  [+] File loaded ({} bytes)", data_len).ok();
+        writeln!(t, "  [+] PE analysis complete").ok();
+        writeln!(t, "  [+] Disassembly generated").ok();
+    } else {
+        writeln!(t, "  [i] No file loaded").ok();
+    }
+    buf.set_text(&t);
+}
+
 fn do_open() {
     if let Some(path) = fltk::dialog::file_chooser("Open File", "*", "", true) {
         STATE.with(|s| s.borrow_mut().load(&path));
         Editors::refresh();
+        refresh_views();
     }
 }
 
@@ -536,24 +601,124 @@ fn main() {
                        "Notes", "Log", "Script", "Source"];
     let mut view_grps: Vec<Group> = Vec::new();
     view_grps.push(cpu_grp);
-    for name in &other_names {
+    let mut view_bufs: Vec<TextBuffer> = Vec::new();
+    let (pe_text, data_len, _str_text) = STATE.with(|s| {
+        let st = s.borrow();
+        (st.core.pe.clone(), st.core.file_data.len(), st.core.str.clone())
+    });
+    for (_i, name) in other_names.iter().enumerate() {
         let mut grp = Group::new(0, CY, W, CH, "");
         grp.set_frame(fltk::enums::FrameType::FlatBox);
         grp.set_color(c_bg);
         let mut buf = TextBuffer::default();
-        buf.set_text(&format!("{} View\n\nNot yet implemented.", name));
+        let text = match *name {
+            "Memory Map" => {
+                let mut t = String::from("Memory Map\n"); t.push_str(&"─".repeat(72)); t.push('\n');
+                if pe_text.is_empty() { t.push_str("  No PE file loaded.\n"); }
+                else {
+                    let mut s = false;
+                    for l in pe_text.lines() {
+                        if l.contains("── Sections") { s = true; continue; }
+                        if s { if l.trim().is_empty() || l.starts_with("──") { break; } t.push_str(l); t.push('\n'); }
+                    }
+                }
+                t
+            }
+            "Symbols" => {
+                let mut t = String::from("Symbols - Exports\n"); t.push_str(&"─".repeat(72)); t.push('\n');
+                if pe_text.is_empty() { t.push_str("  No PE file loaded.\n"); }
+                else {
+                    let mut s = false;
+                    for l in pe_text.lines() {
+                        if l.contains("── Exports") { s = true; continue; }
+                        if s { if l.trim().is_empty() || l.starts_with("──") { break; } t.push_str(l); t.push('\n'); }
+                    }
+                }
+                t
+            }
+            "References" => {
+                let mut t = String::from("References - Imports\n"); t.push_str(&"─".repeat(72)); t.push('\n');
+                if pe_text.is_empty() { t.push_str("  No PE file loaded.\n"); }
+                else {
+                    let mut s = false;
+                    for l in pe_text.lines() {
+                        if l.contains("── Imports") { s = true; continue; }
+                        if s { if l.trim().is_empty() || l.starts_with("──") { break; } t.push_str(l); t.push('\n'); }
+                    }
+                }
+                t
+            }
+            "Call Stack" => {
+                let mut t = String::from("Call Stack\n"); t.push_str(&"─".repeat(72)); t.push('\n');
+                if pe_text.is_empty() { t.push_str("  No PE file loaded.\n"); }
+                else {
+                    for l in pe_text.lines() {
+                        if l.contains("Entry Point:") || l.contains("Image Base:") {
+                            t.push_str(l); t.push('\n');
+                        }
+                    }
+                }
+                t
+            }
+            "Threads" => {
+                let mut t = String::from("Threads\n"); t.push_str(&"─".repeat(72)); t.push('\n');
+                if pe_text.is_empty() { t.push_str("  No PE file loaded.\n"); }
+                else {
+                    for l in pe_text.lines() {
+                        if l.contains("Entry Point:") || l.contains("Image Base:") || l.contains("Size of Image:") {
+                            t.push_str(l); t.push('\n');
+                        }
+                    }
+                    t.push_str("\n  Main thread starts at entry point.\n");
+                }
+                t
+            }
+            "SEH" => {
+                let mut t = String::from("SEH Chain\n"); t.push_str(&"─".repeat(72)); t.push('\n');
+                if pe_text.is_empty() { t.push_str("  No PE file loaded.\n"); }
+                else {
+                    for l in pe_text.lines() {
+                        if l.contains("Subsystem:") || l.contains("Characteristics:") {
+                            t.push_str(l); t.push('\n');
+                        }
+                    }
+                }
+                t
+            }
+            "Notes" => {
+                format!("Reverse Engineering Notes\n{}\n\nUse this space for notes.\n\n", "─".repeat(56))
+            }
+            "Log" => {
+                let mut t = String::from("Operation Log\n"); t.push_str(&"─".repeat(72)); t.push('\n');
+                if data_len > 0 {
+                    t.push_str(&format!("  [+] File loaded ({} bytes)\n", data_len));
+                    t.push_str("  [+] PE analysis complete\n");
+                    t.push_str("  [+] Disassembly generated\n");
+                } else {
+                    t.push_str("  [i] No file loaded\n");
+                }
+                t
+            }
+            _ => format!("{} View\n\nNot yet implemented.", name),
+        };
+        buf.set_text(&text);
         let mut ed = TextEditor::new(2, 2, W - 4, CH - 4, "");
-        ed.set_buffer(buf);
+        ed.set_buffer(buf.clone());
         ed.set_text_font(fltk::enums::Font::Courier);
         ed.set_text_size(12);
-        ed.set_insert_mode(false);
+        ed.set_insert_mode(*name == "Notes");
         ed.set_color(c_bg);
         ed.set_text_color(c_txt);
         ed.set_selection_color(c_sel);
+        if *name == "Notes" {
+            ed.set_cursor_color(c_green);
+        }
         grp.end();
         view_grps.push(grp);
+        view_bufs.push(buf);
     }
     VIEW_GROUPS.with(|v| *v.borrow_mut() = view_grps);
+    VIEW_BUFS.with(|v| *v.borrow_mut() = view_bufs);
 
     // Status Bar
     let mut status = Frame::new(0, CY + CH, W, 24, " No file loaded  |  Ready");
