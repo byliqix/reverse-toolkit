@@ -2,6 +2,7 @@ mod pe;
 mod disasm;
 mod hash;
 mod xor;
+mod highlight;
 
 use fltk::{app, prelude::*, window::*, group::*, button::*, input::*, output::*,
            text::*, menu::*, frame::*};
@@ -196,9 +197,11 @@ impl AppState {
 
 struct Editors {
     pe: TextBuffer,
-    hex: TextBuffer,
     str: TextBuffer,
     disasm: TextBuffer,
+    disasm_style: TextBuffer,
+    hex: TextBuffer,
+    hex_style: TextBuffer,
     md5: Output,
     sha1: Output,
     sha256: Output,
@@ -219,14 +222,18 @@ impl Editors {
         EDITORS.with(|e| {
             if let Some(ref mut ed) = *e.borrow_mut() {
                 ed.pe.set_text(&pe);
-                ed.hex.set_text(&hex);
                 ed.str.set_text(&str);
-                ed.disasm.set_text(&disasm);
+                ed.xor_hex.set_text(&xor_hex);
                 ed.md5.set_value(&md5);
                 ed.sha1.set_value(&sha1);
                 ed.sha256.set_value(&sha256);
-                ed.xor_hex.set_text(&xor_hex);
                 ed.status.set_label(&label);
+                ed.disasm.set_text(&disasm);
+                let ds = highlight::style_disasm(&disasm);
+                ed.disasm_style.set_text(std::str::from_utf8(&ds).unwrap_or(""));
+                ed.hex.set_text(&hex);
+                let hs = highlight::style_hex(&hex);
+                ed.hex_style.set_text(std::str::from_utf8(&hs).unwrap_or(""));
             }
         });
     }
@@ -258,166 +265,321 @@ fn do_rehash() {
     });
 }
 
-fn main() {
-    let app = app::App::default().with_scheme(app::Scheme::Plastic);
-    app::background(236, 233, 216);
-    app::set_background_color(236, 233, 216);
+thread_local! {
+    static CONTENT_GROUPS: RefCell<Vec<Group>> = const { RefCell::new(Vec::new()) };
+    static SIDEBAR_BTNS: RefCell<Vec<Button>> = const { RefCell::new(Vec::new()) };
+}
 
-    let mut win = Window::new(100, 100, 1050, 720, "XPTool - Reverse Engineering Tool");
+fn switch_tab(idx: usize) {
+    let sb_bg = fltk::enums::Color::from_hex(0x252526);
+    let sb_sel = fltk::enums::Color::from_hex(0x094771);
+    SIDEBAR_BTNS.with(|b| {
+        let mut btns = b.borrow_mut();
+        for i in 0..btns.len() {
+            if i == idx {
+                btns[i].set_color(sb_sel);
+                btns[i].set_selection_color(sb_sel);
+                btns[i].set_label_color(fltk::enums::Color::from_hex(0xF0F0F0));
+                btns[i].set_frame(fltk::enums::FrameType::FlatBox);
+            } else {
+                btns[i].set_color(sb_bg);
+                btns[i].set_selection_color(sb_sel);
+                btns[i].set_label_color(fltk::enums::Color::from_hex(0xCCCCCC));
+                btns[i].set_frame(fltk::enums::FrameType::FlatBox);
+            }
+        }
+    });
+    CONTENT_GROUPS.with(|g| {
+        let mut groups = g.borrow_mut();
+        for i in 0..groups.len() {
+            if i == idx { groups[i].show(); } else { groups[i].hide(); }
+        }
+    });
+}
+
+fn main() {
+    let app = app::App::default().with_scheme(app::Scheme::Gtk);
+    app::background(30, 30, 30);
+    app::set_background_color(30, 30, 30);
+
+    let mut win = Window::new(100, 100, 1150, 740, "XPTool - Reverse Engineering Toolkit");
     win.set_frame(fltk::enums::FrameType::BorderBox);
     win.make_resizable(true);
 
-    let mut menu = MenuBar::new(0, 0, 1050, 24, "");
-    menu.set_frame(fltk::enums::FrameType::ThinUpBox);
-    menu.set_color(fltk::enums::Color::from_hex(0xECE9D8));
-    menu.set_label_color(fltk::enums::Color::Black);
+    let c_bg = fltk::enums::Color::from_hex(0x1E1E1E);
+    let c_sb = fltk::enums::Color::from_hex(0x252526);
+    let c_pn = fltk::enums::Color::from_hex(0x2D2D2D);
+    let c_sel = fltk::enums::Color::from_hex(0x094771);
+    let c_txt = fltk::enums::Color::from_hex(0xD4D4D4);
+    let c_txtb = fltk::enums::Color::from_hex(0xF0F0F0);
+    let c_reg = fltk::enums::Color::from_hex(0x4EC9B0);
+    let c_addr = fltk::enums::Color::from_hex(0xDCDCAA);
+
+    let sb_w = 150;
+    let rp_w = 220;
+    let cx = sb_w + 1;
+    let cw = 1150 - sb_w - rp_w - 2;
+    let rx = 1150 - rp_w;
+    let main_y = 24;
+    let main_h = 692;
+
+    // Menu bar
+    let mut menu = MenuBar::new(0, 0, 1150, 24, "");
+    menu.set_frame(fltk::enums::FrameType::FlatBox);
+    menu.set_color(c_sb);
+    menu.set_label_color(c_txtb);
+    menu.set_selection_color(c_sel);
     menu.add("&File/Open\t", fltk::enums::Shortcut::Ctrl | 'o', fltk::menu::MenuFlag::Normal, |_| do_open());
     menu.add("&File/Exit\t", fltk::enums::Shortcut::Ctrl | 'q', fltk::menu::MenuFlag::Normal, |_| app::quit());
 
-    let tab_bg = fltk::enums::Color::from_hex(0xECE9D8);
+    // Sidebar
+    let mut sidebar = Group::new(0, main_y, sb_w, main_h, "");
+    sidebar.set_frame(fltk::enums::FrameType::FlatBox);
+    sidebar.set_color(c_sb);
 
-    let mut tabs = Tabs::new(0, 24, 1050, 653, "");
-    tabs.set_color(tab_bg);
-    tabs.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
+    let mut sb_title = Frame::new(0, main_y + 4, sb_w, 24, "  NAVIGATION");
+    sb_title.set_label_size(10);
+    sb_title.set_label_color(c_sel);
+    sb_title.set_frame(fltk::enums::FrameType::FlatBox);
+    sb_title.set_color(c_sb);
+    sb_title.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
 
-    // PE Tab
-    let mut pe_grp = Group::new(2, 48, 1046, 627, "PE Analyzer");
-    pe_grp.set_frame(fltk::enums::FrameType::FlatBox);
-    pe_grp.set_color(fltk::enums::Color::White);
+    let mut sep1 = Frame::new(5, main_y + 28, sb_w - 10, 1, "");
+    sep1.set_frame(fltk::enums::FrameType::ThinDownBox);
+
+    let btn_pe    = btn(sb_w, &c_sb, &c_sel, main_y + 33, "  PE Analyzer");
+    let btn_hex   = btn(sb_w, &c_sb, &c_sel, main_y + 59, "  Hex Viewer");
+    let btn_str   = btn(sb_w, &c_sb, &c_sel, main_y + 85, "  Strings");
+    let btn_dis   = btn(sb_w, &c_sb, &c_sel, main_y + 111, "  Disassembler");
+    let btn_hash  = btn(sb_w, &c_sb, &c_sel, main_y + 137, "  Hash");
+    let btn_xor   = btn(sb_w, &c_sb, &c_sel, main_y + 163, "  XOR Tool");
+
+    sidebar.end();
+
+    // Divider
+    let mut div1 = Frame::new(sb_w, main_y, 1, main_h, "");
+    div1.set_frame(fltk::enums::FrameType::ThinDownBox);
+    let mut div2 = Frame::new(rx - 1, main_y, 1, main_h, "");
+    div2.set_frame(fltk::enums::FrameType::ThinDownBox);
+
+    // Content area
+    let pe_grp = grp(cx, main_y, cw, main_h);
     let mut pe_buf = TextBuffer::default();
-    let mut pe_ed = TextEditor::new(4, 50, 1040, 623, "");
-    pe_ed.set_buffer(pe_buf.clone());
-    pe_ed.set_text_font(fltk::enums::Font::Courier);
-    pe_ed.set_text_size(13);
-    pe_ed.set_insert_mode(false);
-    pe_ed.set_color(fltk::enums::Color::White);
-    pe_ed.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
+    let _pe_ed = ted(cx + 4, main_y + 4, cw - 8, main_h - 8, &pe_buf, &c_bg, &c_sel);
     pe_grp.end();
 
-    // Hex Tab
-    let mut hx_grp = Group::new(2, 48, 1046, 627, "Hex Viewer");
-    hx_grp.set_frame(fltk::enums::FrameType::FlatBox);
-    hx_grp.set_color(fltk::enums::Color::White);
+    let hx_grp = grp(cx, main_y, cw, main_h);
     let hex_buf = TextBuffer::default();
-    let mut hx_ed = TextEditor::new(4, 50, 1040, 623, "");
+    let hex_style = TextBuffer::default();
+    let mut hx_ed = TextEditor::new(cx + 4, main_y + 4, cw - 8, main_h - 8, "");
     hx_ed.set_buffer(hex_buf.clone());
+    hx_ed.set_highlight_data(hex_style.clone(), highlight::hex_style_table());
     hx_ed.set_text_font(fltk::enums::Font::Courier);
-    hx_ed.set_text_size(13);
+    hx_ed.set_text_size(12);
     hx_ed.set_insert_mode(false);
-    hx_ed.set_color(fltk::enums::Color::White);
-    hx_ed.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
+    hx_ed.set_color(c_bg);
+    hx_ed.set_text_color(c_txt);
+    hx_ed.set_selection_color(c_sel);
     hx_grp.end();
 
-    // Strings Tab
-    let mut st_grp = Group::new(2, 48, 1046, 627, "Strings");
-    st_grp.set_frame(fltk::enums::FrameType::FlatBox);
-    st_grp.set_color(fltk::enums::Color::White);
+    let st_grp = grp(cx, main_y, cw, main_h);
     let str_buf = TextBuffer::default();
-    let mut st_ed = TextEditor::new(4, 50, 1040, 623, "");
-    st_ed.set_buffer(str_buf.clone());
-    st_ed.set_text_font(fltk::enums::Font::Courier);
-    st_ed.set_text_size(13);
-    st_ed.set_insert_mode(false);
-    st_ed.set_color(fltk::enums::Color::White);
-    st_ed.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
+    let _st_ed = ted(cx + 4, main_y + 4, cw - 8, main_h - 8, &str_buf, &c_bg, &c_sel);
     st_grp.end();
 
-    // Disasm Tab
-    let mut da_grp = Group::new(2, 48, 1046, 627, "Disassembler");
-    da_grp.set_frame(fltk::enums::FrameType::FlatBox);
-    da_grp.set_color(fltk::enums::Color::White);
+    let da_grp = grp(cx, main_y, cw, main_h);
     let disasm_buf = TextBuffer::default();
-    let mut da_ed = TextEditor::new(4, 50, 1040, 623, "");
+    let disasm_style = TextBuffer::default();
+    let mut da_ed = TextEditor::new(cx + 4, main_y + 4, cw - 8, main_h - 8, "");
     da_ed.set_buffer(disasm_buf.clone());
+    da_ed.set_highlight_data(disasm_style.clone(), highlight::disasm_style_table());
     da_ed.set_text_font(fltk::enums::Font::Courier);
-    da_ed.set_text_size(13);
+    da_ed.set_text_size(12);
     da_ed.set_insert_mode(false);
-    da_ed.set_color(fltk::enums::Color::White);
-    da_ed.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
+    da_ed.set_color(c_bg);
+    da_ed.set_text_color(c_txt);
+    da_ed.set_selection_color(c_sel);
     da_grp.end();
 
-    // Hash Tab
-    let mut ha_grp = Group::new(2, 48, 1046, 627, "Hash Calculator");
-    ha_grp.set_frame(fltk::enums::FrameType::FlatBox);
-    ha_grp.set_color(fltk::enums::Color::White);
-    let mut md5_out = Output::new(100, 70, 420, 26, " MD5:");
-    let mut sha1_out = Output::new(100, 100, 420, 26, " SHA1:");
-    let mut sha256_out = Output::new(100, 130, 420, 26, " SHA256:");
-    md5_out.set_text_font(fltk::enums::Font::Courier);
-    md5_out.set_text_size(13);
-    sha1_out.set_text_font(fltk::enums::Font::Courier);
-    sha1_out.set_text_size(13);
-    sha256_out.set_text_font(fltk::enums::Font::Courier);
-    sha256_out.set_text_size(13);
-    let mut btn = Button::new(540, 70, 150, 26, "Re-calc Hashes");
-    btn.set_color(fltk::enums::Color::from_hex(0xECE9D8));
-    btn.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
-    btn.set_callback(|_| do_rehash());
+    let ha_grp = grp(cx, main_y, cw, main_h);
+    let mut md5_out = Output::new(cx + 10, main_y + 40, 260, 24, " MD5:");
+    let mut sha1_out = Output::new(cx + 10, main_y + 68, 260, 24, " SHA1:");
+    let mut sha256_out = Output::new(cx + 10, main_y + 96, 260, 24, " SHA256:");
+    for o in [&mut md5_out, &mut sha1_out, &mut sha256_out] {
+        o.set_text_font(fltk::enums::Font::Courier);
+        o.set_text_size(12);
+        o.set_color(c_pn);
+        o.set_text_color(c_addr);
+        o.set_selection_color(c_sel);
+    }
+    let mut hash_btn = Button::new(cx + 280, main_y + 40, 140, 24, "Re-calc");
+    hash_btn.set_color(c_pn);
+    hash_btn.set_selection_color(c_sel);
+    hash_btn.set_label_color(c_txt);
+    hash_btn.set_callback(|_| do_rehash());
     ha_grp.end();
 
-    // XOR Tab
-    let mut xr_grp = Group::new(2, 48, 1046, 627, "XOR Tool");
-    xr_grp.set_frame(fltk::enums::FrameType::FlatBox);
-    xr_grp.set_color(fltk::enums::Color::White);
-    let mut xr_label = Frame::new(10, 56, 60, 22, "Key:");
-    xr_label.set_label_size(13);
-    let mut xr_input = Input::new(70, 56, 180, 22, "");
-    xr_input.set_color(fltk::enums::Color::White);
-    xr_input.set_text_size(13);
-    let mut xr_hex_rb = RadioRoundButton::new(265, 56, 50, 22, "HEX");
-    xr_hex_rb.set_label_size(13);
-    let mut xr_asc_rb = RadioRoundButton::new(320, 56, 60, 22, "ASCII");
-    xr_asc_rb.set_label_size(13);
-    xr_asc_rb.set_value(true);
-    let mut xr_btn = Button::new(395, 56, 80, 22, "Apply");
-    xr_btn.set_color(fltk::enums::Color::from_hex(0xECE9D8));
-    xr_btn.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
+    let xr_grp = grp(cx, main_y, cw, main_h);
+    let mut xr_lbl = Frame::new(cx + 10, main_y + 38, 40, 22, "Key:");
+    xr_lbl.set_label_color(c_txt);
+    xr_lbl.set_label_size(12);
+    let mut xr_inp = Input::new(cx + 50, main_y + 38, 160, 22, "");
+    xr_inp.set_color(c_pn);
+    xr_inp.set_text_color(c_txtb);
+    xr_inp.set_text_size(12);
+    let mut xr_hex = RadioRoundButton::new(cx + 220, main_y + 38, 50, 22, "HEX");
+    xr_hex.set_label_color(c_txt);
+    xr_hex.set_label_size(12);
+    let mut xr_asc = RadioRoundButton::new(cx + 272, main_y + 38, 60, 22, "ASCII");
+    xr_asc.set_label_color(c_txt);
+    xr_asc.set_label_size(12);
+    xr_asc.set_value(true);
+    let mut xr_btn = Button::new(cx + 340, main_y + 38, 80, 22, "Apply");
+    xr_btn.set_color(c_pn);
+    xr_btn.set_selection_color(c_sel);
+    xr_btn.set_label_color(c_txt);
     let mut xor_buf = TextBuffer::default();
-    let mut xr_ed = TextEditor::new(4, 84, 1040, 589, "");
-    xr_ed.set_buffer(xor_buf.clone());
-    xr_ed.set_text_font(fltk::enums::Font::Courier);
-    xr_ed.set_text_size(13);
-    xr_ed.set_insert_mode(false);
-    xr_ed.set_color(fltk::enums::Color::White);
-    xr_ed.set_selection_color(fltk::enums::Color::from_hex(0x316AC5));
-    xr_btn.set_callback({
-        let inp = xr_input.clone();
-        let hex_rb = xr_hex_rb.clone();
-        move |_| {
-            STATE.with(|s| {
-                let is_hex = hex_rb.is_set();
-                if let Some(key) = xor::parse_key(&inp.value(), is_hex) {
-                    s.borrow_mut().apply_xor(&key);
-                } else {
-                    fltk::dialog::alert_default("Invalid XOR key!");
-                }
-            });
-            Editors::refresh();
-        }
+    let _xr_ed = ted(cx + 4, main_y + 66, cw - 8, main_h - 74, &xor_buf, &c_bg, &c_sel);
+    let inp = xr_inp.clone();
+    let hex_rb = xr_hex.clone();
+    xr_btn.set_callback(move |_| {
+        STATE.with(|s| {
+            let is_hex = hex_rb.is_set();
+            if let Some(key) = xor::parse_key(&inp.value(), is_hex) {
+                s.borrow_mut().apply_xor(&key);
+            } else {
+                fltk::dialog::alert_default("Invalid XOR key!");
+            }
+        });
+        Editors::refresh();
     });
     xr_grp.end();
 
-    tabs.end();
+    // Right info panel (x64dbg style)
+    let mut info_panel = Group::new(rx, main_y, rp_w, main_h, "");
+    info_panel.set_frame(fltk::enums::FrameType::FlatBox);
+    info_panel.set_color(c_bg);
 
-    let mut status = Frame::new(0, 677, 1050, 22, " No file loaded");
-    status.set_frame(fltk::enums::FrameType::ThinDownBox);
-    status.set_color(fltk::enums::Color::from_hex(0xECE9D8));
-    status.set_label_color(fltk::enums::Color::from_hex(0x004080));
+    let mut reg_label = Frame::new(rx + 4, main_y + 4, rp_w - 8, 18, "REGISTERS");
+    reg_label.set_label_color(c_sel);
+    reg_label.set_label_size(10);
+    reg_label.set_frame(fltk::enums::FrameType::FlatBox);
+    reg_label.set_color(c_pn);
+
+    let reg_names = ["EAX", "EBX", "ECX", "EDX", "ESI", "EDI", "EBP", "ESP", "EIP", "EFLAGS"];
+    let mut reg_vals_out: Vec<Output> = reg_names.iter().enumerate().map(|(i, name)| {
+        let y = main_y + 26 + (i as i32) * 20;
+        let mut nf = Frame::new(rx + 6, y, 42, 18, *name);
+        nf.set_label_color(c_reg);
+        nf.set_label_size(11);
+        nf.set_align(fltk::enums::Align::Right | fltk::enums::Align::Inside);
+        let mut vf = Output::new(rx + 52, y, rp_w - 60, 18, "");
+        vf.set_color(c_bg);
+        vf.set_text_color(c_addr);
+        vf.set_text_size(11);
+        vf.set_text_font(fltk::enums::Font::Courier);
+        vf
+    }).collect();
+
+    let mut stk_label = Frame::new(rx + 4, main_y + 228, rp_w - 8, 18, "STACK");
+    stk_label.set_label_color(c_sel);
+    stk_label.set_label_size(10);
+    stk_label.set_frame(fltk::enums::FrameType::FlatBox);
+    stk_label.set_color(c_pn);
+
+    let mut stack_buf = TextBuffer::default();
+    let mut stack_ed = TextEditor::new(rx + 2, main_y + 248, rp_w - 4, main_h - 252, "");
+    stack_ed.set_buffer(stack_buf.clone());
+    stack_ed.set_text_font(fltk::enums::Font::Courier);
+    stack_ed.set_text_size(11);
+    stack_ed.set_insert_mode(false);
+    stack_ed.set_color(c_bg);
+    stack_ed.set_text_color(c_addr);
+    stack_ed.set_selection_color(c_sel);
+    info_panel.end();
+
+    // Status bar
+    let mut status = Frame::new(0, 716, 1150, 24, " No file loaded");
+    status.set_frame(fltk::enums::FrameType::FlatBox);
+    status.set_color(c_sb);
+    status.set_label_color(c_txt);
     status.set_label_size(11);
 
     win.end();
     win.show();
 
+    // Register content groups
+    CONTENT_GROUPS.with(|g| {
+        let mut v = g.borrow_mut();
+        v.push(pe_grp); v.push(hx_grp); v.push(st_grp);
+        v.push(da_grp); v.push(ha_grp); v.push(xr_grp);
+    });
+
+    // Register sidebar buttons
+    let mut btns = [btn_pe, btn_hex, btn_str, btn_dis, btn_hash, btn_xor];
+    SIDEBAR_BTNS.with(|b| {
+        let mut v = b.borrow_mut();
+        for btn in &btns { v.push(btn.clone()); }
+    });
+
+    btns[0].set_callback(|_| switch_tab(0));
+    btns[1].set_callback(|_| switch_tab(1));
+    btns[2].set_callback(|_| switch_tab(2));
+    btns[3].set_callback(|_| switch_tab(3));
+    btns[4].set_callback(|_| switch_tab(4));
+    btns[5].set_callback(|_| switch_tab(5));
+
+    switch_tab(0);
+
     pe_buf.set_text("Open a file with File > Open (Ctrl+O)");
-    xor_buf.set_text("Enter a XOR key and click Apply (need to open a file first).\n\nExamples:\n  ASCII key: \"hello\"  (5-byte key: 68 65 6C 6C 6F)\n  HEX key:   \"FF A1\"    (2-byte key: FF A1)\n  HEX key:   \"0xDEAD\"  (2-byte key: DE AD)");
+    xor_buf.set_text("Enter a XOR key and click Apply\n\nExamples:\n  ASCII: \"hello\" (68 65 6C 6C 6F)\n  HEX:   \"FF A1\"  (FF A1)\n  HEX:   \"0xDEAD\" (DE AD)");
+
+    stack_buf.set_text("0019FF88  00 00 00 00\n0019FF8C  00 00 00 00\n0019FF90  00 00 00 00\n0019FF94  00 00 00 00\n0019FF98  00 00 00 00\n0019FF9C  00 00 00 00");
+
+    for (i, _name) in reg_names.iter().enumerate() {
+        if i < reg_vals_out.len() {
+            reg_vals_out[i].set_value("00000000");
+        }
+    }
 
     EDITORS.with(|e| {
         *e.borrow_mut() = Some(Editors {
-            pe: pe_buf, hex: hex_buf, str: str_buf, disasm: disasm_buf,
+            pe: pe_buf, str: str_buf, hex: hex_buf, hex_style,
+            disasm: disasm_buf, disasm_style,
             md5: md5_out, sha1: sha1_out, sha256: sha256_out,
             xor_hex: xor_buf, status,
         });
     });
 
     app.run().unwrap();
+}
+
+fn btn(sb_w: i32, c_sb: &fltk::enums::Color, c_sel: &fltk::enums::Color, y: i32, label: &str) -> Button {
+    let mut b = Button::new(2, y, sb_w - 4, 24, label);
+    b.set_color(*c_sb);
+    b.set_selection_color(*c_sel);
+    b.set_label_color(fltk::enums::Color::from_hex(0xCCCCCC));
+    b.set_label_size(11);
+    b.set_frame(fltk::enums::FrameType::FlatBox);
+    b.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    b
+}
+
+fn grp(x: i32, y: i32, w: i32, h: i32) -> Group {
+    let mut g = Group::new(x, y, w, h, "");
+    g.set_frame(fltk::enums::FrameType::FlatBox);
+    g.set_color(fltk::enums::Color::from_hex(0x1E1E1E));
+    g
+}
+
+fn ted(x: i32, y: i32, w: i32, h: i32, buf: &TextBuffer, bg: &fltk::enums::Color, sel: &fltk::enums::Color) -> TextEditor {
+    let mut e = TextEditor::new(x, y, w, h, "");
+    e.set_buffer(buf.clone());
+    e.set_text_font(fltk::enums::Font::Courier);
+    e.set_text_size(12);
+    e.set_insert_mode(false);
+    e.set_color(*bg);
+    e.set_text_color(fltk::enums::Color::from_hex(0xD4D4D4));
+    e.set_selection_color(*sel);
+    e
 }
