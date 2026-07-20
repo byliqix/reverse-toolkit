@@ -444,10 +444,9 @@ fn do_rehash() {
 }
 
 fn main() {
-    let app = app::App::default().with_scheme(app::Scheme::Gtk);
-    app::background(48, 48, 48);
-    app::set_background_color(48, 48, 48);
-    app::foreground(220, 220, 220);
+    let app = app::App::default();
+    app::background(60, 60, 60);
+    app::foreground(240, 240, 240);
 
     let W: i32 = 1400;
     let H: i32 = 820;
