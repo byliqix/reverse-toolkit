@@ -494,10 +494,70 @@ fn main() {
     menu.set_color(c_header);
     menu.set_label_color(c_txt);
     menu.set_selection_color(c_sel);
+
+    // ── File ──
     menu.add("&File/Open\t", fltk::enums::Shortcut::Ctrl | 'o', fltk::menu::MenuFlag::Normal, |_| do_open());
     menu.add("&File/Hashes\t", fltk::enums::Shortcut::Ctrl | 'h', fltk::menu::MenuFlag::Normal, |_| do_rehash());
     menu.add("&File/Exit\t", fltk::enums::Shortcut::Ctrl | 'q', fltk::menu::MenuFlag::Normal, |_| app::quit());
 
+    // ── View (switch_view index mapping: CPU=0..Source=14) ──
+    let view_items = ["CPU", "Graph", "Snowman", "References", "Breakpoints", "Threads",
+                      "Handles", "Memory Map", "Symbols", "Call Stack", "SEH", "Notes",
+                      "Log", "Script", "Source"];
+    for (i, name) in view_items.iter().enumerate() {
+        let label = format!("&View/{}", name);
+        menu.add(&label, fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, {
+            let idx = i;
+            move |_| switch_view(idx)
+        });
+    }
+
+    // ── Debug ──
+    menu.add("&Debug/Run\tF9", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::alert_default("Run: Start debugging (not available in static analysis)");
+    });
+    menu.add("&Debug/Step Into\tF7", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::alert_default("Step Into: Not available in static analysis");
+    });
+    menu.add("&Debug/Step Over\tF8", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::alert_default("Step Over: Not available in static analysis");
+    });
+    menu.add("&Debug/Execute Until Return\tCtrl+F9",
+             fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::alert_default("Execute Until Return: Not available in static analysis");
+    });
+    menu.add("&Debug/Break\tF5", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::alert_default("Break: Not available in static analysis");
+    });
+    menu.add("&Debug/Restart\tCtrl+F2",
+             fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::alert_default("Restart: Not available in static analysis");
+    });
+    menu.add("&Debug/Stop\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::alert_default("Stop: Not available in static analysis");
+    });
+
+    // ── Plugins ──
+    menu.add("&Plugins/Plugin Manager\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::message_title("Plugin Manager");
+        fltk::dialog::message_default("No plugins installed.\n\nPlugins can be installed from the repository.");
+    });
+
+    // ── Options ──
+    menu.add("&Options/Preferences\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::message_title("Preferences");
+        fltk::dialog::message_default("Preferences dialog not yet implemented.");
+    });
+    menu.add("&Options/Font\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::message_title("Font Settings");
+        fltk::dialog::message_default("Font settings not yet implemented.");
+    });
+    menu.add("&Options/Theme\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        fltk::dialog::message_title("Theme Settings");
+        fltk::dialog::message_default("Theme settings not yet implemented.\n\nCurrent theme: Dark (x64dbg)");
+    });
+
+    // ── Tools ──
     menu.add("&Tools/PE Info\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
         let text = STATE.with(|s| s.borrow().core.pe.clone());
         show_text_window("PE Information", &text, 700, 500);
@@ -510,6 +570,7 @@ fn main() {
         show_xor_window();
     });
 
+    // ── Help ──
     menu.add("&Help/About\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
         show_about();
     });
