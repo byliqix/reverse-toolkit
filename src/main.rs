@@ -4,7 +4,7 @@ mod hash;
 mod xor;
 mod highlight;
 
-use fltk::{app, prelude::*, window::*, group::*, button::*, output::*,
+use fltk::{app, prelude::*, window::*, group::*, button::*, input::*, output::*,
            text::*, menu::*, frame::*};
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -351,6 +351,18 @@ fn main() {
     menu.add("&File/Hashes\t", fltk::enums::Shortcut::Ctrl | 'h', fltk::menu::MenuFlag::Normal, |_| do_rehash());
     menu.add("&File/Exit\t", fltk::enums::Shortcut::Ctrl | 'q', fltk::menu::MenuFlag::Normal, |_| app::quit());
 
+    menu.add("&Tools/PE Info\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        let text = STATE.with(|s| s.borrow().core.pe.clone());
+        show_text_window("PE Information", &text, 700, 500);
+    });
+    menu.add("&Tools/Strings\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        let text = STATE.with(|s| s.borrow().core.str.clone());
+        show_text_window("Strings", &text, 800, 600);
+    });
+    menu.add("&Tools/XOR Tool\t", fltk::enums::Shortcut::None, fltk::menu::MenuFlag::Normal, |_| {
+        show_xor_window();
+    });
+
     // Toolbar
     let mut tb = Group::new(0, TITLE_H + MENU_H, W, TB_H, "");
     tb.set_frame(fltk::enums::FrameType::FlatBox);
@@ -510,4 +522,78 @@ fn main() {
     });
 
     app.run().unwrap();
+}
+
+fn show_text_window(title: &str, text: &str, w: i32, h: i32) {
+    let mut win = Window::default().with_size(w, h).with_label(title);
+    win.make_resizable(true);
+    win.set_color(fltk::enums::Color::from_hex(0x1E1E1E));
+    let mut buf = TextBuffer::default();
+    buf.set_text(text);
+    let mut ed = TextEditor::new(5, 5, w - 10, h - 10, "");
+    ed.set_buffer(buf);
+    ed.set_text_font(fltk::enums::Font::Courier);
+    ed.set_text_size(12);
+    ed.set_insert_mode(false);
+    ed.set_color(fltk::enums::Color::from_hex(0x0C0C0C));
+    ed.set_text_color(fltk::enums::Color::from_hex(0xD4D4D4));
+    win.end();
+    win.show();
+}
+
+fn show_xor_window() {
+    let mut win = Window::default().with_size(750, 550).with_label("XOR Tool");
+    win.make_resizable(true);
+    win.set_color(fltk::enums::Color::from_hex(0x1E1E1E));
+
+    let c_bg = fltk::enums::Color::from_hex(0x0C0C0C);
+    let c_pn = fltk::enums::Color::from_hex(0x2D2D2D);
+    let c_sel = fltk::enums::Color::from_hex(0x094771);
+    let c_txt = fltk::enums::Color::from_hex(0xD4D4D4);
+    let c_txtb = fltk::enums::Color::from_hex(0xF0F0F0);
+
+    let mut key_inp = Input::new(55, 10, 160, 24, "Key:");
+    key_inp.set_color(c_pn);
+    key_inp.set_text_color(c_txtb);
+
+    let mut hex_rb = RadioRoundButton::new(230, 10, 55, 24, "HEX");
+    hex_rb.set_label_color(c_txt);
+
+    let mut asc_rb = RadioRoundButton::new(290, 10, 65, 24, "ASCII");
+    asc_rb.set_label_color(c_txt);
+    asc_rb.set_value(true);
+
+    let mut apply_btn = Button::new(365, 10, 70, 24, "Apply");
+    apply_btn.set_color(c_pn);
+    apply_btn.set_selection_color(c_sel);
+    apply_btn.set_label_color(c_txt);
+
+    let mut buf = TextBuffer::default();
+    buf.set_text("Enter a XOR key and click Apply\n\nExamples:\n  ASCII: \"hello\" (68 65 6C 6C 6F)\n  HEX:   \"FF A1\"  (FF A1)\n  HEX:   \"0xDEAD\" (DE AD)");
+
+    let mut ed = TextEditor::new(5, 40, 740, 505, "");
+    ed.set_buffer(buf.clone());
+    ed.set_text_font(fltk::enums::Font::Courier);
+    ed.set_text_size(12);
+    ed.set_insert_mode(false);
+    ed.set_color(c_bg);
+    ed.set_text_color(c_txt);
+
+    let inp = key_inp.clone();
+    let hex = hex_rb.clone();
+    apply_btn.set_callback(move |_| {
+        STATE.with(|s| {
+            let is_hex = hex.is_set();
+            if let Some(key) = xor::parse_key(&inp.value(), is_hex) {
+                s.borrow_mut().apply_xor(&key);
+                let result = s.borrow().core.xor_hex.clone();
+                buf.set_text(&result);
+            } else {
+                fltk::dialog::alert_default("Invalid XOR key!");
+            }
+        });
+    });
+
+    win.end();
+    win.show();
 }
