@@ -461,10 +461,10 @@ fn main() {
     let BH: i32 = CH - TH;
     let RX: i32 = LW + 2;
 
-    let c_bg     = fltk::enums::Color::from_hex(0x1A1A1A);
-    let c_panel  = fltk::enums::Color::from_hex(0x252525);
+    let c_bg     = fltk::enums::Color::from_hex(0x202020);
+    let c_panel  = fltk::enums::Color::from_hex(0x2B2B2B);
     let c_sel    = fltk::enums::Color::from_hex(0x094771);
-    let c_txt    = fltk::enums::Color::from_hex(0xE0E0E0);
+    let c_txt    = fltk::enums::Color::from_hex(0xF0F0F0);
     let c_gold   = fltk::enums::Color::from_hex(0xFFD700);
     let c_cyan   = fltk::enums::Color::from_hex(0x00FFFF);
     let c_green  = fltk::enums::Color::from_hex(0x39FF14);
